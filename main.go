@@ -31,13 +31,13 @@ func init() {
 		"Number of threads")
 	flag.IntVar(&statsIntervalSeconds, "p", 5,
 		"Stats message printing interval in seconds")
-	flag.IntVar(&throttleMilliseconds, "throttle", 0,
+	flag.IntVar(&throttleMilliseconds, "throttle", 1,
 		"Throttle between requests in milliseconds")
 	flag.BoolVar(&verbose, "v", false,
 		"Verbose logging")
 	flag.BoolVar(&checkResponse, "e", false,
 		"Check response for empty result")
-	flag.StringVar(&resolver, "r", "127.0.0.1:53",
+	flag.StringVar(&resolver, "r", "",
 		"Resolver to test against, by default will be used resolver from /etc/hosts")
 	flag.Usage = func() {
 		fmt.Printf(strings.Join([]string{
@@ -59,6 +59,14 @@ func main() {
 	if flag.NArg() < 1 {
 		flag.Usage()
 		os.Exit(1)
+	}
+
+	if resolver == "" {
+		config, err := dns.ClientConfigFromFile("/etc/resolv.conf")
+		if err != nil {
+			log.Fatalf("failed to read /etc/resolv.conf: %+v", err)
+		}
+		resolver = config.Servers[0] + ":" + config.Port
 	}
 
 	if !strings.Contains(resolver, ":") {
