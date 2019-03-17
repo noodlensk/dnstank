@@ -14,7 +14,7 @@ Usage: dnstank [option ...] targetdomain [targetdomain [...] ]
   -p int
         Stats message printing interval in seconds (default 5)
   -r string
-        Resolver to test against, by default will be used resolver from /etc/hosts
+        Resolver to test against, by default will be used resolver from /etc/resolv.conf
   -throttle int
         Throttle between requests in milliseconds
   -v    Verbose logging

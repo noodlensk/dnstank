@@ -38,7 +38,7 @@ func init() {
 	flag.BoolVar(&checkResponse, "e", false,
 		"Check response for empty result")
 	flag.StringVar(&resolver, "r", "",
-		"Resolver to test against, by default will be used resolver from /etc/hosts")
+		"Resolver to test against, by default will be used resolver from /etc/resolv.conf")
 	flag.Usage = func() {
 		fmt.Printf(strings.Join([]string{
 			"Send DNS requests as fast as possible (but with a throttle) to a given server and display the rate.",
