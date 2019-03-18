@@ -137,9 +137,11 @@ func resolveHost(host, resolver string) (*dns.Msg, error) {
 		return nil, err
 	}
 	defer co.Close()
+	if err := co.SetDeadline(time.Now().Add(5 * time.Second)); err != nil {
+		return nil, err
+	}
 	message := new(dns.Msg).SetQuestion(host, dns.TypeA)
 	// Actually send the message and wait for answer
 	co.WriteMsg(message)
-
 	return co.ReadMsg()
 }
