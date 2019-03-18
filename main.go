@@ -3,7 +3,6 @@ package main
 import (
 	"flag"
 	"fmt"
-	"net"
 	"os"
 	"strings"
 	"time"
@@ -129,11 +128,14 @@ func main() {
 }
 
 func resolveHost(host, resolver string) (*dns.Msg, error) {
-	dnsconn, err := net.Dial("udp", resolver)
+	client := &dns.Client{
+		Net:     "udp",
+		Timeout: time.Second * 5,
+	}
+	co, err := client.Dial(resolver)
 	if err != nil {
 		return nil, err
 	}
-	co := &dns.Conn{Conn: dnsconn}
 	defer co.Close()
 	message := new(dns.Msg).SetQuestion(host, dns.TypeA)
 	// Actually send the message and wait for answer
