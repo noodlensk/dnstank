@@ -1,8 +1,10 @@
 package main
 
 import (
+	"errors"
 	"flag"
 	"fmt"
+	"net"
 	"os"
 	"strings"
 	"time"
@@ -16,11 +18,24 @@ var (
 	concurrency int
 	verbose     bool
 	resolver    string
-	// check for empty response
-	checkResponse        bool
+
 	statsIntervalSeconds int
 	// throttle between dns requests
 	throttleMilliseconds int
+
+	// resolveMode could be "go-native" or "go-lib"
+	// go-native should use glibc getaddr function
+	resolveMode string
+)
+
+const (
+	resolveModeNative = "go-native"
+	resolveModeLib    = "go-lib"
+)
+
+var (
+	errorTimeout  = errors.New("Timeout")
+	errorNotFound = errors.New("Not found")
 )
 
 func init() {
@@ -34,10 +49,10 @@ func init() {
 		"Throttle between requests in milliseconds")
 	flag.BoolVar(&verbose, "v", false,
 		"Verbose logging")
-	flag.BoolVar(&checkResponse, "e", false,
-		"Check response for empty result")
 	flag.StringVar(&resolver, "r", "",
 		"Resolver to test against, by default will be used resolver from /etc/resolv.conf")
+	flag.StringVar(&resolveMode, "m", "go-lib",
+		"Resolving mode: could be 'go-native' or 'go-lib'[default]")
 	flag.Usage = func() {
 		fmt.Printf(strings.Join([]string{
 			"Send DNS requests as fast as possible (but with a throttle) to a given server and display the rate.",
@@ -73,6 +88,13 @@ func main() {
 		resolver = resolver + ":53"
 	}
 
+	// check for modes
+	switch resolveMode {
+	case resolveModeLib, resolveModeNative:
+	default:
+		log.Fatalf("unknown mode %s", resolveMode)
+	}
+
 	// all remaining parameters are treated as domains to be used in round-robin in the threads
 	targetDomains := make([]string, flag.NArg())
 	for index, element := range flag.Args() {
@@ -84,33 +106,50 @@ func main() {
 	}
 	log.WithFields(log.Fields{
 		"resolver": resolver,
+		"mode":     resolveMode,
 		"hosts":    strings.Join(targetDomains, ", "),
 	}).Info("Started")
 	ch := make(chan string)
-
+	errorCh := make(chan error)
+	sentCnt := 0
+	notFoundCnt := 0
+	timeoutCnt := 0
+	errorCnt := 0
+	go func() {
+		for err := range errorCh {
+			switch err {
+			case errorNotFound:
+				notFoundCnt++
+			case errorTimeout:
+				timeoutCnt++
+			default:
+				errorCnt++
+			}
+		}
+	}()
 	// Run concurrently
 	for threadID := 0; threadID < concurrency; threadID++ {
 		go func() {
 			for host := range ch {
-				res, err := resolveHost(host, resolver)
+				var err error
+				if resolveMode == resolveModeLib {
+					err = resolveHostLib(host, resolver)
+				}
+				if resolveMode == resolveModeNative {
+					err = resolveHostNative(host)
+				}
 				if err != nil {
-					log.WithField("error", err).Error("request failed")
-					continue
+					errorCh <- err
 				}
-				if checkResponse && len(res.Answer) == 0 {
-					log.Errorf("empty response: %v", res.String())
-				}
-				log.WithField("answer", res.String()).Debug("got response")
 			}
 		}()
 	}
 
 	// print statistic in background
-	sentCnt := 0
 	lastPrintedCnt := 0
 	go func() {
 		for {
-			log.Infof("Sent %d requests, ~%.2f req/sec", sentCnt, float64((sentCnt-lastPrintedCnt)/statsIntervalSeconds))
+			log.Infof("Total %d, not found: %d, timeout: %d, errors: %d, ~%.2f req/sec. ", sentCnt, notFoundCnt, timeoutCnt, errorCnt, float64((sentCnt-lastPrintedCnt)/statsIntervalSeconds))
 			lastPrintedCnt = sentCnt
 			time.Sleep(time.Second * time.Duration(statsIntervalSeconds))
 		}
@@ -127,21 +166,39 @@ func main() {
 	}
 }
 
-func resolveHost(host, resolver string) (*dns.Msg, error) {
+func resolveHostLib(host, resolver string) error {
 	client := &dns.Client{
 		Net:     "udp",
 		Timeout: time.Second * 5,
 	}
 	co, err := client.Dial(resolver)
 	if err != nil {
-		return nil, err
+		return err
 	}
 	defer co.Close()
 	if err := co.SetDeadline(time.Now().Add(5 * time.Second)); err != nil {
-		return nil, err
+		return err
 	}
 	message := new(dns.Msg).SetQuestion(host, dns.TypeA)
 	// Actually send the message and wait for answer
 	co.WriteMsg(message)
-	return co.ReadMsg()
+	res, err := co.ReadMsg()
+	if err != nil {
+		return err
+	}
+	if len(res.Answer) == 0 {
+		return errorNotFound
+	}
+	return nil
+}
+
+func resolveHostNative(host string) error {
+	res, err := net.ResolveIPAddr("ip", host)
+	if err != nil {
+		return err
+	}
+	if res.String() == "" {
+		return errorNotFound
+	}
+	return nil
 }
