@@ -195,6 +195,9 @@ func resolveHostLib(host, resolver string) error {
 func resolveHostNative(host string) error {
 	res, err := net.ResolveIPAddr("ip", host)
 	if err != nil {
+		if strings.Contains(err.Error(), "no such host") {
+			return errorNotFound
+		}
 		return err
 	}
 	if res.String() == "" {
