@@ -26,11 +26,18 @@ var (
 	// resolveMode could be "go-native" or "go-lib"
 	// go-native should use glibc getaddr function
 	resolveMode string
+
+	// resolveType can be ip, ip4, ip6
+	resolveType string
 )
 
 const (
 	resolveModeNative = "go-native"
 	resolveModeLib    = "go-lib"
+
+	resolveTypeIP  = "ip"
+	resolveTypeIP4 = "ip4"
+	resolveTypeIP6 = "ip6"
 )
 
 var (
@@ -52,7 +59,9 @@ func init() {
 	flag.StringVar(&resolver, "r", "",
 		"Resolver to test against, by default will be used resolver from /etc/resolv.conf")
 	flag.StringVar(&resolveMode, "m", "go-lib",
-		"Resolving mode: could be 'go-native' or 'go-lib'[default]")
+		"Resolving mode: can be 'go-native' or 'go-lib'[default]")
+	flag.StringVar(&resolveType, "t", "ip",
+		"Resolving type: can be ip, ip4, ip6")
 	flag.Usage = func() {
 		fmt.Printf(strings.Join([]string{
 			"Send DNS requests as fast as possible (but with a throttle) to a given server and display the rate.",
@@ -94,19 +103,22 @@ func main() {
 	default:
 		log.Fatalf("unknown mode %s", resolveMode)
 	}
+	// check for resolve type
+	switch resolveType {
+	case resolveTypeIP, resolveTypeIP4, resolveTypeIP6:
+	default:
+		log.Fatalf("unknown type %s", resolveType)
+	}
 
 	// all remaining parameters are treated as domains to be used in round-robin in the threads
 	targetDomains := make([]string, flag.NArg())
 	for index, element := range flag.Args() {
-		if element[len(element)-1] == '.' {
-			targetDomains[index] = element
-		} else {
-			targetDomains[index] = element + "."
-		}
+		targetDomains[index] = element
 	}
 	log.WithFields(log.Fields{
 		"resolver": resolver,
 		"mode":     resolveMode,
+		"type":     resolveType,
 		"hosts":    strings.Join(targetDomains, ", "),
 	}).Info("Started")
 	ch := make(chan string)
@@ -149,7 +161,7 @@ func main() {
 	lastPrintedCnt := 0
 	go func() {
 		for {
-			log.Infof("Total %d, not found: %d, timeout: %d, errors: %d, ~%.2f req/sec. ", sentCnt, notFoundCnt, timeoutCnt, errorCnt, float64((sentCnt-lastPrintedCnt)/statsIntervalSeconds))
+			log.Infof("Total %d, not found: %d, timeout: %d, errors: %d, ~%.2f req/sec", sentCnt, notFoundCnt, timeoutCnt, errorCnt, float64((sentCnt-lastPrintedCnt))/float64(statsIntervalSeconds))
 			lastPrintedCnt = sentCnt
 			time.Sleep(time.Second * time.Duration(statsIntervalSeconds))
 		}
@@ -179,6 +191,9 @@ func resolveHostLib(host, resolver string) error {
 	if err := co.SetDeadline(time.Now().Add(5 * time.Second)); err != nil {
 		return err
 	}
+	if host[len(host)-1] != '.' {
+		host = host + "."
+	}
 	message := new(dns.Msg).SetQuestion(host, dns.TypeA)
 	// Actually send the message and wait for answer
 	co.WriteMsg(message)
@@ -193,7 +208,7 @@ func resolveHostLib(host, resolver string) error {
 }
 
 func resolveHostNative(host string) error {
-	res, err := net.ResolveIPAddr("ip", host)
+	res, err := net.ResolveIPAddr(resolveType, host)
 	if err != nil {
 		if strings.Contains(err.Error(), "no such host") {
 			return errorNotFound
