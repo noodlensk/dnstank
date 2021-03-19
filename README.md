@@ -4,7 +4,7 @@ Simple stress test for dns server
 
 ## Usage
 
-```BASH
+```bash
 Send DNS requests as fast as possible (but with a throttle) to a given server and display the rate.
 
 Usage: dnstank [option ...] targetdomain [targetdomain [...] ]
