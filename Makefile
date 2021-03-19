@@ -1,3 +1,3 @@
 build:
-	dep ensure --vendor-only && \
+	go mod tidy &&\
 	go build
